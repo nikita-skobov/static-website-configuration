@@ -1,0 +1,162 @@
+WebAppS3Bucket:
+  Type: AWS::S3::Bucket
+  Properties:
+    BucketName: ${self:custom.cloudfront-app.bucketName}
+    WebsiteConfiguration:
+      IndexDocument: index.html
+      ErrorDocument: index.html
+
+
+WebRedirectS3Bucket:
+  Type: AWS::S3::Bucket
+  Properties:
+    BucketName: "redirect-${self:custom.cloudfront-app.bucketName}"
+    WebsiteConfiguration:
+      RedirectAllRequestsTo:
+        HostName: "${self:custom.cloudfront-app.alias}"
+        Protocol: https
+
+
+WebAppS3BucketPolicy:
+  Type: AWS::S3::BucketPolicy
+  Properties:
+    Bucket:
+      Ref: WebAppS3Bucket
+    PolicyDocument:
+      Statement:
+        - Sid: PublicReadGetObject
+          Effect: Allow
+          Principal: "*"
+          Action:
+          - s3:GetObject
+          Resource: arn:aws:s3:::${self:custom.cloudfront-app.bucketName}/*
+          Condition:
+            StringLike:
+              ## only allow get requests to this bucket if they include a
+              ## secret user agent string... this is an easy way to only allow
+              ## access from a designated cloudfront distribution, but a poor
+              ## security solution, because it relies on security by obfuscration
+              aws:UserAgent: ${self:custom.cloudfront-app.useragentsecret}
+
+WebAppRecord:
+  DependsOn:
+    - WebAppDistribution
+  Type: AWS::Route53::RecordSet
+  Properties:
+    AliasTarget:
+      DNSName:
+        Fn::GetAtt:
+          - WebAppDistribution
+          - DomainName
+      HostedZoneId: Z2FDTNDATAQYW2 # I think this is the same for all cloudfront distributions
+    HostedZoneName: "${self:custom.cloudfront-app.hostedzonename}."
+    Name: "${self:custom.cloudfront-app.alias}."
+    Type: 'A'
+
+WWWWebAppRecord:
+  DependsOn:
+    - WebAppDistribution
+  Type: AWS::Route53::RecordSet
+  Properties:
+    AliasTarget:
+      DNSName:
+        Fn::GetAtt:
+          - RedirectCloudFrontDistribution
+          - DomainName
+      HostedZoneId: Z2FDTNDATAQYW2 # I think this is the same for all cloudfront distributions
+    HostedZoneName: "${self:custom.cloudfront-app.hostedzonename}."
+    Name: "www.${self:custom.cloudfront-app.alias}."
+    Type: 'A'
+RedirectCloudFrontDistribution:
+  Type: AWS::CloudFront::Distribution
+  Properties:
+    DistributionConfig:
+      HttpVersion: "http2"
+      Origins:
+        - DomainName: "redirect-${self:custom.cloudfront-app.bucketName}.s3-website.${self:custom.cloudfront-app.region}.amazonaws.com"
+          ## An identifier for the origin which must be unique within the distribution
+          Id: "S3-ID=redirect-${self:custom.cloudfront-app.bucketName}"
+          # OriginCustomHeaders:
+          #   - HeaderName: User-Agent
+          #     HeaderValue: ${self:custom.useragentsecret}
+          CustomOriginConfig:
+            HTTPPort: 80
+            HTTPSPort: 443
+            OriginProtocolPolicy: http-only
+      Enabled: 'true'
+      Aliases:
+        ## redirect all requests to www.mydomainname.com to an s3 bucket
+        ## that s3 bucket redirects to mydomainname.com
+        ## a cloudfront distribution for this is a bit overkill, but for some reason
+        ## i was unable to set it up using only s3 + route53
+        - "www.${self:custom.cloudfront-app.alias}"
+      DefaultCacheBehavior:
+        AllowedMethods:
+          - GET
+          - HEAD
+        ## The origin id defined above
+        TargetOriginId: "S3-ID=redirect-${self:custom.cloudfront-app.bucketName}"
+        ForwardedValues:
+          QueryString: 'false'
+          Cookies:
+            Forward: none
+        ViewerProtocolPolicy: redirect-to-https
+      ViewerCertificate:
+        AcmCertificateArn:
+          Fn::Join:
+            - "" # empty string as the delimiter
+              # join the next 3 lines together and in order:
+            - - "arn:aws:acm:${self:custom.cloudfront-app.acm-region}:"
+              - Ref: AWS::AccountId
+              - ":certificate/${self:custom.cloudfront-app.certid}"
+        SslSupportMethod: sni-only
+        MinimumProtocolVersion: TLSv1.1_2016
+      # Logging:
+      #   IncludeCookies: 'false'
+      #   Bucket: ${self:custom.cloudfront-app.logbucket}
+      #   Prefix: "redirect-${self:custom.cloudfront-app.logbucket-prefix}"
+WebAppDistribution:
+  Type: AWS::CloudFront::Distribution
+  Properties:
+    DistributionConfig:
+      HttpVersion: "http2"
+      Origins:
+        - DomainName: "${self:custom.cloudfront-app.bucketName}.s3-website.${self:custom.cloudfront-app.region}.amazonaws.com"
+          Id: "S3-ID=${self:custom.cloudfront-app.bucketName}"
+          OriginCustomHeaders:
+            - HeaderName: User-Agent
+              HeaderValue: ${self:custom.cloudfront-app.useragentsecret}
+          CustomOriginConfig:
+            HTTPPort: 80
+            HTTPSPort: 443
+            ## note this needs to be http only because it is using an s3 website bucket
+            ## as an origin. S3 as a website only allows http...
+            OriginProtocolPolicy: http-only
+      Enabled: 'true'
+      Aliases:
+        - ${self:custom.cloudfront-app.alias}
+      DefaultCacheBehavior:
+        AllowedMethods:
+          - GET
+          - HEAD
+        ## The origin id defined above
+        TargetOriginId: "S3-ID=${self:custom.cloudfront-app.bucketName}"
+        ForwardedValues:
+          QueryString: 'false'
+          Cookies:
+            Forward: none
+        ViewerProtocolPolicy: redirect-to-https
+      ViewerCertificate:
+        AcmCertificateArn:
+          Fn::Join:
+            - "" # empty string as the delimiter
+              # join the next 3 lines together and in order:
+            - - "arn:aws:acm:${self:custom.cloudfront-app.acm-region}:"
+              - Ref: AWS::AccountId
+              - ":certificate/${self:custom.cloudfront-app.certid}"
+        SslSupportMethod: sni-only
+        MinimumProtocolVersion: TLSv1.1_2016
+      # Logging:
+      #   IncludeCookies: 'false'
+      #   Bucket: ${self:custom.cloudfront-app.logbucket}
+      #   Prefix: ${self:custom.cloudfront-app.logbucket-prefix}

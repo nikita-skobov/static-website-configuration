@@ -1,0 +1,45 @@
+service: ${opt:service, "static-website-configuration"}
+provider:
+  name: aws
+  runtime: nodejs8.10
+  stage: ${opt:stage, "staging"}
+  region: ${opt:region, "us-east-1"}
+package:
+  exclude:
+    - LICENSE
+    - README.md
+    - serverlessConfig/**
+    # # the following is an example of how to exclude all node_modules except
+    # # for the ones you want
+    # - node_modules/**
+    # - '!node_modules/uuid/**'
+custom:
+  # policies: ${file(./serverlessConfig/policies.yml):policies}
+
+  cloudfront-app:
+    region: us-east-1 # for some reason serverless cannot reference this if it
+    # is a variable, so make sure to change the us-east-1 to whatever region you want your bucket to be in
+    bucketName: ${opt:bucket}
+    useragentsecret: ${opt:uasecret}
+    acm-region: us-east-1
+    # similarly to the custom.cloudfront-app.region variable, this variable causes serverless
+    # to throw errors. Make sure to set this value to whatever region you created your certificate in
+    certid: ${opt:certid}
+    alias: ${opt:alias}
+    hostedzonename: ${opt:hzname}
+    # logbucket: "${opt:logbucket}.s3.amazonaws.com"
+    # logbucket-prefix: "${self:provider.stage}-${self:service}"
+
+# functions: ${file(./serverlessConfig/functions.yml):functions}
+
+resources:
+  Resources:
+    WebAppRecord: ${file(./serverlessConfig/resources.yml):WebAppRecord}
+    WebAppS3Bucket: ${file(./serverlessConfig/resources.yml):WebAppS3Bucket}
+    WebAppS3BucketPolicy: ${file(./serverlessConfig/resources.yml):WebAppS3BucketPolicy}
+    WebAppDistribution: ${file(./serverlessConfig/resources.yml):WebAppDistribution}
+
+    # # Uncomment these if you want to redirect www.{your alias}.com to {your alias}.com
+    # WebRedirectS3Bucket: ${file(./serverlessConfig/resources.yml):WebRedirectS3Bucket}
+    # RedirectCloudFrontDistribution: ${file(./serverlessConfig/resources.yml):RedirectCloudFrontDistribution}
+    # WWWWebAppRecord: ${file(./serverlessConfig/resources.yml):WWWWebAppRecord}
